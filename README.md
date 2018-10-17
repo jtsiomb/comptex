@@ -63,6 +63,10 @@ Each element of the level data descriptor array is an offset from the end of the
 header to the start of the compressed data for the corresponding mipmap level,
 and the size in bytes of the compressed data.
 
+    struct level_desc {
+        uint32_t offset, size;
+    };
+
 Build
 -----
 Just type `make`, followed by `make install` as root, to install in
