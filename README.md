@@ -15,7 +15,7 @@ that it needs to connect to the window system and create an OpenGL context, and
 therefore can't run on a headless machine.
 
 Comptex depends on freeglut for OpenGL context creation, and libimago
-(`http://github.com/jtsiomb/libimago`) for image loading.
+(http://github.com/jtsiomb/libimago) for image loading.
 
 License
 -------
