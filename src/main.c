@@ -43,7 +43,7 @@ unsigned char *texcomp(unsigned int tofmt, int level, unsigned char *pixels, int
 int level0size(int x, int level);
 const char *mkfname(const char *infile);
 int save_miptree(void);
-int print_info(const char *fname);
+int load_compressed(const char *fname);
 
 struct {
 	unsigned int fmt;
@@ -173,10 +173,10 @@ int main(int argc, char **argv)
 				glutMainLoopEvent();
 
 			} else if(strcmp(argv[i], "-info") == 0) {
-				if(print_info(argv[++i]) == -1) {
+				if(load_compressed(argv[++i]) == -1) {
 					return 1;
 				}
-				return 0;
+				infname = 0;
 
 			} else if(strcmp(argv[i], "-help") == 0 || strcmp(argv[i], "-h") == 0) {
 				printf("Usage: %s [options] <file1> [<file2> ... <fileN>]\n", argv[0]);
@@ -221,8 +221,10 @@ int main(int argc, char **argv)
 				 * save the existing miptree and start over, or is it an error?
 				 */
 				if(miptree[0].data) {	/* if we have a 0-th mipmap, let's assume it's not an error */
-					if(save_miptree() == -1) {
-						return 1;
+					if(infname) {
+						if(save_miptree() == -1) {
+							return 1;
+						}
 					}
 
 					for(i=0; i<MAX_LEVELS; i++) {
@@ -267,7 +269,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if(miptree[0].data) {
+	if(miptree[0].data && infname) {
 		if(save_miptree() == -1) {
 			return 1;
 		}
@@ -476,11 +478,12 @@ int save_miptree(void)
 	return 0;
 }
 
-int print_info(const char *fname)
+int load_compressed(const char *fname)
 {
-	int i;
+	int i, sz;
 	FILE *fp;
 	struct header hdr;
+	long data_offs;
 
 	if(!(fp = fopen(fname, "rb"))) {
 		fprintf(stderr, "failed to open file: %s: %s\n", fname, strerror(errno));
@@ -491,10 +494,10 @@ int print_info(const char *fname)
 		fclose(fp);
 		return -1;
 	}
-	fclose(fp);
 
 	if(memcmp(hdr.magic, MAGIC, sizeof hdr.magic) != 0) {
 		fprintf(stderr, "file %s is not a compressed texture file\n", fname);
+		fclose(fp);
 		return -1;
 	}
 
@@ -507,9 +510,46 @@ int print_info(const char *fname)
 			formats[i].name ? formats[i].name : "unknown", hdr.levels,
 			hdr.levels > 1 ? "levels" : "level");
 
+	for(i=0; i<MAX_LEVELS; i++) {
+		free(miptree[i].data);
+		miptree[i].data = 0;
+	}
+
+	data_offs = ftell(fp);
+	cfmt = hdr.glfmt;
+	cur_width = hdr.width;
+	cur_height = hdr.height;
+	glutReshapeWindow(hdr.width + hdr.width / 2, hdr.height);
+
+	glBindTexture(GL_TEXTURE_2D, tex);
+
 	for(i=0; i<hdr.levels; i++) {
 		printf("  mip %d at offset: %d, size: %d bytes\n", i, hdr.datadesc[i].offset,
 				hdr.datadesc[i].size);
+		assert(ftell(fp) - data_offs == hdr.datadesc[i].offset);
+		assert(hdr.width & hdr.height);
+
+		if(!(miptree[i].data = malloc(hdr.datadesc[i].size))) {
+			fprintf(stderr, "failed to allocate buffer for miptree level %d\n", i);
+			continue;
+		}
+		miptree[i].size = hdr.datadesc[i].size;
+
+		if((sz = fread(miptree[i].data, 1, hdr.datadesc[i].size, fp)) != hdr.datadesc[i].size) {
+			fprintf(stderr, "unexpected EOF while reading miptree level %d\n", i);
+			free(miptree[i].data);
+			miptree[i].data = 0;
+			break;
+		}
+
+		glCompressedTexImage2D(GL_TEXTURE_2D, i, hdr.glfmt, hdr.width, hdr.height, 0,
+				miptree[i].size, miptree[i].data);
+		assert(glGetError() == GL_NO_ERROR);
+
+		hdr.width /= 2;
+		hdr.height /= 2;
 	}
+
+	fclose(fp);
 	return 0;
 }
